@@ -69,9 +69,11 @@ type PointerWalker interface {
 	PointerExit(bool) error
 }
 
-// SkipEntry can be returned from walk functions to skip walking
+// SkipEntry can be returned from walk functions to skip
 // the value of this field. This is only valid in the following functions:
 //
+//	 - Array: skips all elements from being walked
+//	 - Slice: skips all elements from being walked
 //   - Struct: skips all fields from being walked
 //   - StructField: skips walking the struct value
 //
@@ -216,8 +218,7 @@ func walkMap(v reflect.Value, w interface{}) error {
 			}
 		}
 
-		ew, ok := w.(EnterExitWalker)
-		if ok {
+		if ewok {
 			ew.Enter(MapKey)
 		}
 
@@ -225,7 +226,7 @@ func walkMap(v reflect.Value, w interface{}) error {
 			return err
 		}
 
-		if ok {
+		if ewok {
 			ew.Exit(MapKey)
 			ew.Enter(MapValue)
 		}
@@ -235,7 +236,7 @@ func walkMap(v reflect.Value, w interface{}) error {
 			return err
 		}
 
-		if ok {
+		if ewok {
 			ew.Exit(MapValue)
 		}
 	}
@@ -256,42 +257,47 @@ func walkPrimitive(v reflect.Value, w interface{}) error {
 }
 
 func walkSlice(v reflect.Value, w interface{}) (err error) {
-	ew, ok := w.(EnterExitWalker)
-	if ok {
+	ew, ewok := w.(EnterExitWalker)
+	if ewok {
 		ew.Enter(Slice)
 	}
 
+	skip := false
 	if sw, ok := w.(SliceWalker); ok {
 		if err := sw.Slice(v); err != nil {
-			return err
-		}
-	}
-
-	for i := 0; i < v.Len(); i++ {
-		elem := v.Index(i)
-
-		if sw, ok := w.(SliceWalker); ok {
-			if err := sw.SliceElem(i, elem); err != nil {
+			if err == SkipEntry {
+				err = nil
+				skip = true
+			} else {
 				return err
 			}
 		}
+	}
 
-		ew, ok := w.(EnterExitWalker)
-		if ok {
-			ew.Enter(SliceElem)
-		}
+	if !skip {
+		for i := 0; i < v.Len(); i++ {
+			elem := v.Index(i)
 
-		if err := walk(elem, w); err != nil {
-			return err
-		}
+			if sw, ok := w.(SliceWalker); ok {
+				if err := sw.SliceElem(i, elem); err != nil {
+					return err
+				}
+			}
+			if ewok {
+				ew.Enter(SliceElem)
+			}
 
-		if ok {
-			ew.Exit(SliceElem)
+			if err := walk(elem, w); err != nil {
+				return err
+			}
+
+			if ewok {
+				ew.Exit(SliceElem)
+			}
 		}
 	}
 
-	ew, ok = w.(EnterExitWalker)
-	if ok {
+	if ewok {
 		ew.Exit(Slice)
 	}
 
@@ -299,42 +305,48 @@ func walkSlice(v reflect.Value, w interface{}) (err error) {
 }
 
 func walkArray(v reflect.Value, w interface{}) (err error) {
-	ew, ok := w.(EnterExitWalker)
-	if ok {
+	ew, ewok := w.(EnterExitWalker)
+	if ewok {
 		ew.Enter(Array)
 	}
 
+	skip := false
 	if aw, ok := w.(ArrayWalker); ok {
 		if err := aw.Array(v); err != nil {
-			return err
-		}
-	}
-
-	for i := 0; i < v.Len(); i++ {
-		elem := v.Index(i)
-
-		if aw, ok := w.(ArrayWalker); ok {
-			if err := aw.ArrayElem(i, elem); err != nil {
+			if err == SkipEntry {
+				err = nil
+				skip = true
+			} else {
 				return err
 			}
 		}
+	}
 
-		ew, ok := w.(EnterExitWalker)
-		if ok {
-			ew.Enter(ArrayElem)
-		}
+	if !skip {
+		for i := 0; i < v.Len(); i++ {
+			elem := v.Index(i)
 
-		if err := walk(elem, w); err != nil {
-			return err
-		}
+			if aw, ok := w.(ArrayWalker); ok {
+				if err := aw.ArrayElem(i, elem); err != nil {
+					return err
+				}
+			}
 
-		if ok {
-			ew.Exit(ArrayElem)
+			if ewok {
+				ew.Enter(ArrayElem)
+			}
+
+			if err := walk(elem, w); err != nil {
+				return err
+			}
+
+			if ewok {
+				ew.Exit(ArrayElem)
+			}
 		}
 	}
 
-	ew, ok = w.(EnterExitWalker)
-	if ok {
+	if ewok {
 		ew.Exit(Array)
 	}
 
@@ -378,8 +390,7 @@ func walkStruct(v reflect.Value, w interface{}) (err error) {
 				}
 			}
 
-			ew, ok := w.(EnterExitWalker)
-			if ok {
+			if ewok {
 				ew.Enter(StructField)
 			}
 
@@ -388,7 +399,7 @@ func walkStruct(v reflect.Value, w interface{}) (err error) {
 				return
 			}
 
-			if ok {
+			if ewok {
 				ew.Exit(StructField)
 			}
 		}
